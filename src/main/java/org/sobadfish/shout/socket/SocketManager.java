@@ -40,6 +40,11 @@ public class SocketManager {
     public String host;
 
     /**
+     * 服务端端口
+     * */
+    public int hostPort;
+
+    /**
      * 主机分配的端口
      * */
     private static int port = -1;
@@ -57,6 +62,7 @@ public class SocketManager {
     private SocketManager(SocketNode socket){
         this.socket = socket;
         host = socket.ip;
+        hostPort = socket.port;
         type = SocketType.SOCKET;
         enable = true;
         connect();
@@ -68,6 +74,7 @@ public class SocketManager {
         this.serverSocket = serverSocket;
         this.sockets = new CopyOnWriteArrayList<>();
         port = serverSocket.getLocalPort();
+        hostPort = socket.port;
         type = SocketType.SERVER;
         enable = true;
         enable();
@@ -174,6 +181,9 @@ public class SocketManager {
                         sockets.add(node);
                         // 回传分配的端口
                         node.sendMessage(MessageData.createMessage(new PortBack(node.port)));
+                        if(connectListener != null){
+                            connectListener.join(node);
+                        }
                     }
                 } catch (IOException e) {
 
@@ -297,7 +307,7 @@ public class SocketManager {
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
-                    socket = SocketNode.getNode(new Socket(host, port));
+                    socket = SocketNode.getNode(new Socket(host, hostPort));
 
                     connect();
                 } catch (IOException ignore) {
@@ -471,7 +481,6 @@ public class SocketManager {
                             } else {
                                 portBack = null;
                             }
-
                             // 判断是否为主机 如果是主机就把收到的数据分发给其他客户端
                             if (manager.type == SocketType.SERVER) {
                                 for (SocketNode node : manager.sockets) {
