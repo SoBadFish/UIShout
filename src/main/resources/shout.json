@@ -16,7 +16,8 @@
       "list": [
         "Msg",
         "Tip",
-        "Popup"
+        "Popup",
+        "Title"
       ]
     }
 
