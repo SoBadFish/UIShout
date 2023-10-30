@@ -150,6 +150,7 @@ public class SocketManager {
                         if(!node.sendMessage(messageData)){
                             if (connectListener != null) {
                                 connectListener.quit(node);
+                                sockets.remove(node);
                             }
 
                         }
@@ -173,9 +174,6 @@ public class SocketManager {
                         sockets.add(node);
                         // 回传分配的端口
                         node.sendMessage(MessageData.createMessage(new PortBack(node.port)));
-                        if(connectListener != null){
-                            connectListener.join(node);
-                        }
                     }
                 } catch (IOException e) {
 
@@ -263,6 +261,7 @@ public class SocketManager {
                                     if (!node.read(this)) {
                                         if (connectListener != null) {
                                             connectListener.quit(node);
+                                            sockets.remove(node);
                                         }
                                         node.disable();
                                     }
@@ -479,7 +478,7 @@ public class SocketManager {
                                     // 别再把数据又发回去了，这不就重复了吗
                                     //当然你也可以选择重复，只在接收区显示
                                     //增加这个判断是为了 忽略发送数据到服务器的客户端
-                                    if (node.equals(this)) {
+                                    if (node.equals(this.node)) {
                                         continue;
                                     }
                                     node.sendMessage(data);
