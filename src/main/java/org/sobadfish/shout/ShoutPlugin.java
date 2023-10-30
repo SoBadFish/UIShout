@@ -134,6 +134,16 @@ public class ShoutPlugin extends PluginBase implements Listener {
         public String player;
 
         public String type;
+
+        @Override
+        public String toString() {
+            return "MsgBroadcastData{" +
+                    "msg='" + msg + '\'' +
+                    ", world='" + world + '\'' +
+                    ", player='" + player + '\'' +
+                    ", type='" + type + '\'' +
+                    '}';
+        }
     }
 
     public void broadcastMessage(SocketManager.MessageData msg, String type){

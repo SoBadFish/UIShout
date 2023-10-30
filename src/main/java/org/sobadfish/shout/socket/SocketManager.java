@@ -35,6 +35,11 @@ public class SocketManager {
     public boolean enable;
 
     /**
+     * 服务端IP
+     * */
+    public String host;
+
+    /**
      * 主机分配的端口
      * */
     private static int port = -1;
@@ -51,6 +56,7 @@ public class SocketManager {
 
     private SocketManager(SocketNode socket){
         this.socket = socket;
+        host = socket.ip;
         type = SocketType.SOCKET;
         enable = true;
         connect();
@@ -134,14 +140,19 @@ public class SocketManager {
             case SOCKET:
                 if(socket != null && port > 0){
                     // 通信建立后才行发送数据
-                    socket.sendMessage(messageData);
-                    return true;
+                    return socket.sendMessage(messageData);
+
                 }
                 break;
             case SERVER:
                 if(sockets.size() > 0) {
                     for (SocketNode node : sockets) {
-                        node.sendMessage(messageData);
+                        if(!node.sendMessage(messageData)){
+                            if (connectListener != null) {
+                                connectListener.quit(node);
+                            }
+
+                        }
                     }
                     return true;
                 }
@@ -248,11 +259,13 @@ public class SocketManager {
                     for (SocketNode node : sockets) {
                         if (node != null && node.isConnected()) {
                             if(node.isEnable()){
-                                if(!node.read(this)){
-                                    if(connectListener != null){
-                                        connectListener.quit(node);
+                                if(!node.isInit) {
+                                    if (!node.read(this)) {
+                                        if (connectListener != null) {
+                                            connectListener.quit(node);
+                                        }
+                                        node.disable();
                                     }
-                                    node.disable();
                                 }
                             }
                         }
@@ -262,17 +275,40 @@ public class SocketManager {
                     if (socket != null && socket.isConnected()) {
 //                        read(socket.socket);
                         if(socket.isEnable()){
-                            if(!socket.read(this)){
-                                if(connectListener != null){
-                                    connectListener.quit(socket);
-                                }
-                                socket.disable();
+                            if(!socket.isInit){
+                                if(!socket.read(this)){
+                                    if(connectListener != null){
+                                        connectListener.quit(socket);
+                                    }
+                                    socket.disable();
 
+                                }
                             }
+
                         }
                     }
                 }
             }
+            //断开连接 尝试查找服务器..
+            if (type == SocketType.SOCKET) {
+                //10 s 重连一次
+                try {
+                    try {
+                        Thread.sleep(10000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    socket = SocketNode.getNode(new Socket(host, port));
+
+                    connect();
+                } catch (IOException ignore) {
+                }
+
+
+
+            }
+
+
 
         });
     }
@@ -325,7 +361,9 @@ public class SocketManager {
 
     public void sendMessage(Object o){
         MessageData messageData = MessageData.createMessage(o);
-        sendMessage(messageData);
+        if(!sendMessage(messageData)){
+            ShoutPlugin.getShoutPlugin().getLogger().info(o.toString()+" 消息发送失败！");
+        }
 
     }
 
@@ -336,6 +374,7 @@ public class SocketManager {
 
         private final String ip;
 
+        private boolean isInit = false;
 
         private boolean enable;
 
@@ -384,85 +423,89 @@ public class SocketManager {
                     e.printStackTrace();
                 }
             }
+            socket = null;
         }
 
         public boolean read(SocketManager manager){
 
-            if(inputStream == null){
-                return false;
-            }
-            Gson gson = new Gson();
-            while (!socket.isClosed()){
-                try {
-                    byte[] bytes = new byte[1024];
-                    inputStream.read(bytes,0,bytes.length);
-                    String out = new String(bytes, StandardCharsets.UTF_8).trim();
-                    if(!"".equalsIgnoreCase(out.trim()) ){
-                        MessageData data = gson.fromJson(out, MessageData.class);
-                        PortBack portBack = data.getData(PortBack.class);
-                        if (portBack != null && portBack.port > 0) {
-                            SocketManager.port = portBack.port;
-                            if (manager.connectListener != null) {
-                                manager.connectListener.join(this);
-                            }
-                        }else{
-                            portBack = null;
-                        }
-
-                        // 判断是否为主机 如果是主机就把收到的数据分发给其他客户端
-                        if (manager.type == SocketType.SERVER) {
-                            for (SocketNode node : manager.sockets) {
-                                // 别再把数据又发回去了，这不就重复了吗
-                                //当然你也可以选择重复，只在接收区显示
-                                //增加这个判断是为了 忽略发送数据到服务器的客户端
-                                if (node.equals(this)) {
-                                    continue;
-                                }
-                                node.sendMessage(data);
-                            }
-                        }
-                        if (manager.dataListener != null) {
-                            if (portBack != null) {
-                                continue;
-                            }
-                            manager.dataListener.handleMessage(manager, data);
-                        }
-
-                    }
-
-                }catch (Exception e){
+            if(!isInit) {
+                isInit = true;
+                if (inputStream == null) {
                     return false;
                 }
+                executor.execute(new NodeReadRunnable(this,manager));
             }
-            // 进入这个判断后说明连接被关闭了
-            switch (manager.type){
-                case SERVER:
-                    if(manager.connectListener != null){
-                        manager.connectListener.quit(this);
-                    }
-                    return false;
-                case SOCKET:
-                    // 尝试重连主机
-                    int error = 0;
-                    while (error < 3){
-                        try {
-//
-                            socket = new Socket(socket.getInetAddress(), socket.getPort());
-                            // 重连完成
-                            break;
-                        }catch (Exception e) {
-                            error++;
-                        }
-                    }
-                    if(error >= 3){
-                        return false;
-                    }
 
-                    break;
-                default:break;
-            }
             return true;
 
+
+        }
+
+        private static class NodeReadRunnable implements Runnable{
+
+            public SocketNode node;
+
+            public SocketManager manager;
+
+            public NodeReadRunnable(SocketNode socketNode,SocketManager manager){
+                this.node = socketNode;
+                this.manager = manager;
+            }
+            @Override
+            public void run() {
+                Gson gson = new Gson();
+                Socket socket = node.socket;
+                InputStream inputStream = node.inputStream;
+                while (!socket.isClosed()) {
+                    try {
+                        byte[] bytes = new byte[1024];
+                        inputStream.read(bytes, 0, bytes.length);
+                        String out = new String(bytes, StandardCharsets.UTF_8).trim();
+                        if (!"".equalsIgnoreCase(out.trim())) {
+                            MessageData data = gson.fromJson(out, MessageData.class);
+                            PortBack portBack = data.getData(PortBack.class);
+                            if (portBack != null && portBack.port > 0) {
+                                SocketManager.port = portBack.port;
+                                if (manager.connectListener != null) {
+                                    manager.connectListener.join(node);
+                                }
+                            } else {
+                                portBack = null;
+                            }
+
+                            // 判断是否为主机 如果是主机就把收到的数据分发给其他客户端
+                            if (manager.type == SocketType.SERVER) {
+                                for (SocketNode node : manager.sockets) {
+                                    // 别再把数据又发回去了，这不就重复了吗
+                                    //当然你也可以选择重复，只在接收区显示
+                                    //增加这个判断是为了 忽略发送数据到服务器的客户端
+                                    if (node.equals(this)) {
+                                        continue;
+                                    }
+                                    node.sendMessage(data);
+                                }
+                            }
+                            if (manager.dataListener != null) {
+                                if (portBack != null) {
+                                    continue;
+                                }
+                                manager.dataListener.handleMessage(manager, data);
+                            }
+
+                        }
+
+                    } catch (Exception e) {
+                        return;
+                    }
+
+                }
+                // 进入这个判断后说明连接被关闭了
+                if (manager.type == SocketType.SERVER) {
+                    if (manager.connectListener != null) {
+                        manager.connectListener.quit(node);
+                    }
+                }
+            }
         }
 
 
@@ -478,7 +521,7 @@ public class SocketManager {
             return socket != null && socket.isConnected();
         }
 
-        private void sendMessage(MessageData messageData){
+        private boolean sendMessage(MessageData messageData){
             if(isConnected()) {
                 messageData.port = port;
                 Gson gson = new Gson();
@@ -486,11 +529,15 @@ public class SocketManager {
                 try {
                     if(outputStream != null){
                         outputStream.write(msg);
+                        outputStream.flush();
                     }
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    disable();
+                    return false;
+
                 }
             }
+            return true;
 
         }
 
@@ -537,6 +584,7 @@ public class SocketManager {
                 e.printStackTrace();
             }
         }
+
     }
 
 
