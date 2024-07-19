@@ -74,7 +74,7 @@ public class SocketManager {
         this.serverSocket = serverSocket;
         this.sockets = new CopyOnWriteArrayList<>();
         port = serverSocket.getLocalPort();
-        hostPort = socket.port;
+        hostPort = port;
         type = SocketType.SERVER;
         enable = true;
         enable();
@@ -113,6 +113,7 @@ public class SocketManager {
             }
 
         } catch (Exception e) {
+
             // 不存在服务器
             System.out.println("不存在服务主机 或 主机无法连接 " + host + " 正在创建端口 " + port + " 的主机");
             try {
@@ -387,10 +388,14 @@ public class SocketManager {
 
         private boolean enable;
 
-        private final int port;
+        private int port;
 
         public String getIPAddress(){
             return ip;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
         }
 
         public int getPort() {
